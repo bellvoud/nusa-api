@@ -69,7 +69,7 @@ nusantara-quest-api/
 ### 2. Clone & Install
 
 ```bash
-git clone https://github.com/username/nusa-api.git
+git clone https://github.com/bellvoud/nusa-api.git
 cd nusa-api
 bun install
 ```
