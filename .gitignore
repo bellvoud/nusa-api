@@ -1,0 +1,108 @@
+# ============================================================
+# ENVIRONMENT — JANGAN PERNAH COMMIT FILE INI
+# ============================================================
+.env
+.env.local
+.env.development
+.env.production
+.env.staging
+.env.test
+
+# Boleh di-commit (template tanpa nilai asli)
+!.env.example
+
+# ============================================================
+# DEPENDENCIES
+# ============================================================
+node_modules/
+.pnp
+.pnp.js
+
+# ============================================================
+# BUILD OUTPUT
+# ============================================================
+dist/
+build/
+out/
+
+# ============================================================
+# BUN
+# ============================================================
+bun.lockb
+*.bun
+
+# ============================================================
+# DRIZZLE
+# ============================================================
+# Migration boleh di-commit supaya bisa di-replay
+# drizzle/migrations/
+
+# Meta file drizzle (auto-generated, tidak perlu di-commit)
+drizzle/meta/
+
+# ============================================================
+# LOGS
+# ============================================================
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+bun-debug.log*
+
+# ============================================================
+# OS FILES
+# ============================================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+Thumbs.db:encdata
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# Linux
+*~
+
+# ============================================================
+# EDITOR & IDE
+# ============================================================
+
+# VSCode
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# JetBrains (WebStorm, IntelliJ)
+.idea/
+*.iml
+*.iws
+
+# Vim
+*.swp
+*.swo
+*.swn
+
+# ============================================================
+# TESTING
+# ============================================================
+coverage/
+.nyc_output/
+
+# ============================================================
+# MISC
+# ============================================================
+*.pem
+*.key
+*.cert
+.cache/
+tmp/
+temp/
