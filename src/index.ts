@@ -18,7 +18,7 @@ const app = new Elysia()
       origin:
         process.env.NODE_ENV === "development"
           ? "*"
-          : ["https://pribumi.vercel.app"],
+          : ["https://pribumi.vercel.app", "http://localhost:5173/"],
       methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
       allowedHeaders: ["Content-Type", "Authorization"],
     }),
