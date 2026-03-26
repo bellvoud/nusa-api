@@ -113,9 +113,9 @@ export const badgesRoutes = new Elysia()
     },
   )
 
-  // GET /users/leaderboard — top 50 pemain
+  // GET /leaderboard — top 50 pemain
   .get(
-    "/users/leaderboard",
+    "/leaderboard",
     async ({ userId, set }) => {
       try {
         const data = await getLeaderboard(userId);

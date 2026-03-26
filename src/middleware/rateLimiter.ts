@@ -7,8 +7,8 @@
 import { Elysia } from "elysia";
 
 interface RateLimitOptions {
-  windowMs: number; // durasi window dalam milidetik
-  max: number; // max request per window
+  windowMs: number;
+  max: number;
   message?: string;
 }
 
@@ -20,7 +20,6 @@ interface HitRecord {
 // ── In-memory store ──────────────────────────────────────────
 const store = new Map<string, HitRecord>();
 
-// Bersihkan entri yang sudah expired setiap 5 menit
 setInterval(
   () => {
     const now = Date.now();
@@ -31,7 +30,7 @@ setInterval(
   5 * 60 * 1000,
 );
 
-// ── Factory: buat plugin rate limiter ───────────────────────
+// ── Factory: plugin rate limiter ───────────────────────
 export const rateLimiter = (options: RateLimitOptions) => {
   const {
     windowMs,
@@ -42,7 +41,6 @@ export const rateLimiter = (options: RateLimitOptions) => {
   return new Elysia({ name: `rateLimiter-${max}-${windowMs}` }).onBeforeHandle(
     { as: "global" },
     ({ request, set }) => {
-      // Ambil IP — fallback ke 127.0.0.1 di local/test
       const ip =
         request.headers.get("x-forwarded-for")?.split(",")[0].trim() ??
         request.headers.get("x-real-ip") ??
@@ -54,13 +52,12 @@ export const rateLimiter = (options: RateLimitOptions) => {
       const record = store.get(key);
 
       if (!record || now > record.resetAt) {
-        // Window baru
         const resetAt = now + windowMs;
         store.set(key, { count: 1, resetAt });
         set.headers["X-RateLimit-Limit"] = String(max);
         set.headers["X-RateLimit-Remaining"] = String(max - 1);
         set.headers["X-RateLimit-Reset"] = String(resetAt);
-        return; // lanjutkan
+        return;
       }
 
       record.count++;
@@ -84,25 +81,27 @@ export const rateLimiter = (options: RateLimitOptions) => {
   );
 };
 
-// ── Preset siap pakai ────────────────────────────────────────
-
-// Auth: 10 request per 15 menit
 export const authRateLimit = rateLimiter({
   windowMs: 15 * 60 * 1000,
-  max: 10,
-  message: "Terlalu banyak percobaan, coba lagi dalam 15 menit.",
+  max: 20,
+  message: "Terlalu banyak percobaan masuk, silakan coba lagi dalam 15 menit.",
 });
 
-// Gameplay: 30 request per menit
 export const gameplayRateLimit = rateLimiter({
-  windowMs: 60 * 1000,
-  max: 30,
-  message: "Terlalu banyak sesi dibuka, tunggu sebentar.",
+  windowMs: 1 * 60 * 1000,
+  max: 60,
+  message: "Tenang sebentar, jangan terburu-buru mengerjakan kuis.",
 });
 
-// Umum (read): 100 request per menit
 export const generalRateLimit = rateLimiter({
-  windowMs: 60 * 1000,
-  max: 100,
-  message: "Terlalu banyak permintaan, coba lagi dalam 1 menit.",
+  windowMs: 1 * 60 * 1000,
+  max: 120,
+  message: "Koneksi terlalu padat, silakan tunggu sebentar.",
+});
+
+export const dailyQuizRateLimit = rateLimiter({
+  windowMs: 5 * 60 * 1000,
+  max: 5,
+  message:
+    "Hanya satu percobaan kuis harian yang diperbolehkan dalam waktu singkat.",
 });
