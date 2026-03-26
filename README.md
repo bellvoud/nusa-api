@@ -29,9 +29,11 @@ REST API untuk platform edutainment interaktif bertema sejarah Indonesia. Dibang
 ## 📁 Struktur Project
 
 ```
-nusantara-quest-api/
+nusa-api/
+├── api/
+│   └── index.ts                    # Vercel serverless entry point
 ├── src/
-│   ├── index.ts                    # Entry point
+│   ├── index.ts                    # Main application entry point
 │   ├── db/
 │   │   ├── schema.ts               # Drizzle schema (semua tabel + relasi)
 │   │   ├── index.ts                # Koneksi Supabase
@@ -54,6 +56,7 @@ nusantara-quest-api/
 ├── drizzle.config.ts
 ├── package.json
 ├── tsconfig.json
+├── vercel.json                     # Vercel deployment configuration
 └── .env.example
 ```
 
