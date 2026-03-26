@@ -15,7 +15,9 @@ const app = new Elysia()
   .use(
     cors({
       origin:
-        process.env.NODE_ENV === "development" ? "*" : ["https://nusaquest.id"],
+        process.env.NODE_ENV === "development"
+          ? "*"
+          : ["https://pribumi.vercel.app/"],
       methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
       allowedHeaders: ["Content-Type", "Authorization"],
     }),
