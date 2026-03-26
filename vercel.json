@@ -4,5 +4,11 @@
   },
   "installCommand": "bun install",
   "framework": null,
-  "bunVersion": "1.x"
+  "bunVersion": "1.x",
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/src/index.ts"
+    }
+  ]
 }

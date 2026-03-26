@@ -15,9 +15,7 @@ const app = new Elysia()
   .use(
     cors({
       origin:
-        process.env.NODE_ENV === "development"
-          ? "*"
-          : ["https://nusantaraquest.id"],
+        process.env.NODE_ENV === "development" ? "*" : ["https://nusaquest.id"],
       methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
       allowedHeaders: ["Content-Type", "Authorization"],
     }),
@@ -80,15 +78,29 @@ const app = new Elysia()
   .use(generalRateLimit)
   .use(badgesRoutes);
 
-// Jalankan server hanya jika file ini dieksekusi langsung
-// (bukan saat diimport oleh test)
-if (import.meta.main) {
+app.onError(({ error, code, set }) => {
+  const status = set.status ?? 500;
+  if (Number(status) >= 500) {
+    const message =
+      error instanceof Error ? error.message : "Internal Server Error";
+    console.error(`[${code}]`, message);
+  }
+});
+
+// local
+if (import.meta.main || process.env.NODE_ENV === "development") {
   app.listen(process.env.PORT ?? 3000);
   console.log(
-    `🗺️  Nusantara Quest API running at http://localhost:${app.server?.port}`,
+    `🗺️ Nusantara Quest API running at http://localhost:${app.server?.port}`,
   );
   console.log(`📖 Swagger docs at http://localhost:${app.server?.port}/docs`);
 }
+
+export const GET = app.handle;
+export const POST = app.handle;
+export const PUT = app.handle;
+export const PATCH = app.handle;
+export const DELETE = app.handle;
 
 export default app;
 export type App = typeof app;
