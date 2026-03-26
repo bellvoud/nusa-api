@@ -5,6 +5,7 @@ import { authRoutes, authMeRoutes } from "./modules/auth/auth.routes";
 import { mapRoutes } from "./modules/map/map.routes";
 import { gameplayRoutes } from "./modules/gameplay/gameplay.routes";
 import { badgesRoutes } from "./modules/badges/badges.routes";
+import { dailyRoutes } from "./modules/daily/daily.routes";
 import {
   authRateLimit,
   gameplayRateLimit,
@@ -17,7 +18,7 @@ const app = new Elysia()
       origin:
         process.env.NODE_ENV === "development"
           ? "*"
-          : ["https://pribumi.vercel.app/"],
+          : ["https://pribumi.vercel.app"],
       methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
       allowedHeaders: ["Content-Type", "Authorization"],
     }),
@@ -36,6 +37,7 @@ const app = new Elysia()
           { name: "Map", description: "Islands, chapters & levels" },
           { name: "Gameplay", description: "Quiz sessions & results" },
           { name: "Badges", description: "Achievements & progress" },
+          { name: "Daily", description: "Quiz harian & weekly tasks" },
         ],
         components: {
           securitySchemes: {
@@ -69,7 +71,7 @@ const app = new Elysia()
     status: "ok",
     timestamp: new Date().toISOString(),
   }))
-  // modules w/ rate limiter
+  // Modules dengan rate limiter masing-masing
   .use(authRateLimit)
   .use(authRoutes)
   .use(authMeRoutes)
@@ -78,7 +80,9 @@ const app = new Elysia()
   .use(gameplayRateLimit)
   .use(gameplayRoutes)
   .use(generalRateLimit)
-  .use(badgesRoutes);
+  .use(badgesRoutes)
+  .use(generalRateLimit)
+  .use(dailyRoutes);
 
 app.onError(({ error, code, set }) => {
   const status = set.status ?? 500;

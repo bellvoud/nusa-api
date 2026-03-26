@@ -3,6 +3,7 @@ import { db } from "../../db";
 import { users } from "../../db/schema";
 import { eq } from "drizzle-orm";
 import { calculateLevel } from "../../utils/xp";
+import { updateWeeklyTaskProgress } from "../daily/daily.service";
 
 // ── Hash password menggunakan Bun built-in ──────────────────
 export const hashPassword = async (password: string): Promise<string> => {
@@ -97,6 +98,15 @@ export const loginUser = async (input: { email: string; password: string }) => {
     .update(users)
     .set({ lastLoginAt: now, loginStreak: newStreak, updatedAt: now })
     .where(eq(users.id, user.id));
+
+  // Update weekly task login_streak (increment 1 per hari unik)
+  if (
+    !lastLogin ||
+    Math.floor((now.getTime() - lastLogin.getTime()) / (1000 * 60 * 60 * 24)) >=
+      1
+  ) {
+    await updateWeeklyTaskProgress(user.id, "login_streak", 1);
+  }
 
   return {
     id: user.id,

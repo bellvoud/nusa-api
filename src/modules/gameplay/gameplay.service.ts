@@ -12,16 +12,16 @@ import {
 import { eq, and, gte } from "drizzle-orm";
 import { calculateLevel } from "../../utils/xp";
 import { evaluateAndAwardBadges } from "../../utils/badgeEngine";
+import { updateWeeklyTaskProgress } from "../daily/daily.service";
 
 // ── Start new session ───────────────────────────────────────
 export const startSession = async (userId: string, levelId: string) => {
-  // check level exists
   const level = await db.query.levels.findFirst({
     where: eq(levels.id, levelId),
   });
   if (!level) throw new Error("LEVEL_NOT_FOUND");
 
-  // check if level already unlocked for this user
+  // check level is unlocked?
   const progress = await db.query.userProgress.findFirst({
     where: and(
       eq(userProgress.userId, userId),
@@ -63,7 +63,7 @@ export const startSession = async (userId: string, levelId: string) => {
 
   if (!allQuizzes.length) throw new Error("NO_QUESTIONS");
 
-  // Buat sesi baru
+  // create new session
   const [session] = await db
     .insert(quizSessions)
     .values({
@@ -105,7 +105,7 @@ export const submitSession = async (
   }>,
   timeSpentSec: number,
 ) => {
-  // check valid session owned by this user
+  // check session valid milik user ini
   const session = await db.query.quizSessions.findFirst({
     where: and(
       eq(quizSessions.id, sessionId),
@@ -204,7 +204,7 @@ export const submitSession = async (
     })
     .where(eq(quizSessions.id, sessionId));
 
-  // Update user XP & level
+  // update user XP & level
   const user = await db.query.users.findFirst({
     where: eq(users.id, userId),
     columns: { totalXp: true, level: true },
@@ -219,7 +219,7 @@ export const submitSession = async (
     .set({ totalXp: newTotalXp, level: newLevel, updatedAt: new Date() })
     .where(eq(users.id, userId));
 
-  // Update atau insert user_progress
+  // update or insert user_progress
   const existingProgress = await db.query.userProgress.findFirst({
     where: and(
       eq(userProgress.userId, userId),
@@ -253,7 +253,7 @@ export const submitSession = async (
     });
   }
 
-  // Unlock level berikutnya jika lulus
+  // unlock next level if passed
   let nextLevelUnlocked = false;
   if (isPassed) {
     const nextLevel = await db.query.levels.findFirst({
@@ -283,7 +283,14 @@ export const submitSession = async (
     }
   }
 
-  // Cek badge yang baru unlock
+  // update weekly task progress
+  await updateWeeklyTaskProgress(userId, "complete_levels", isPassed ? 1 : 0);
+  await updateWeeklyTaskProgress(userId, "collect_xp", xpGained);
+  if (isPassed && score >= 100) {
+    await updateWeeklyTaskProgress(userId, "perfect_score", 1);
+  }
+
+  // check newly unlocked badge
   const newBadges = await evaluateAndAwardBadges(userId);
 
   return {
@@ -298,7 +305,7 @@ export const submitSession = async (
   };
 };
 
-// ── Get result sesi ──────────────────────────────────────────
+// ── Get session result ──────────────────────────────────────────
 export const getSessionResult = async (userId: string, sessionId: string) => {
   const session = await db.query.quizSessions.findFirst({
     where: and(eq(quizSessions.id, sessionId), eq(quizSessions.userId, userId)),
