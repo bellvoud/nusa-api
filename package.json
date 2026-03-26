@@ -1,5 +1,5 @@
 {
-  "name": "nusantara-quest-api",
+  "name": "nusa-api",
   "version": "1.0.0",
   "description": "REST API for Nusantara Quest edutainment game",
   "module": "src/index.ts",
@@ -10,6 +10,8 @@
     "db:generate": "drizzle-kit generate --config=drizzle.config.ts",
     "db:push": "drizzle-kit push --config=drizzle.config.ts",
     "db:migrate": "drizzle-kit migrate --config=drizzle.config.ts",
+    "db:seed:daily": "bun run src/db/seed.daily.ts",
+    "db:seed:all": "bun run src/db/seed.ts && bun run src/db/seed.daily.ts",
     "db:studio": "drizzle-kit studio --config=drizzle.config.ts"
   },
   "dependencies": {
