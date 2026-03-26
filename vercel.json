@@ -1,0 +1,8 @@
+{
+  "github": {
+    "silent": true
+  },
+  "installCommand": "bun install",
+  "framework": null,
+  "bunVersion": "1.x"
+}
