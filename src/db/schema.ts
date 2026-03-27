@@ -87,8 +87,8 @@ export const islands = pgTable(
     name: varchar("name", { length: 100 }).notNull(),
     slug: varchar("slug", { length: 100 }).notNull().unique(),
     description: text("description"),
-    mapLat: doublePrecision("map_lat").notNull(),
-    mapLng: doublePrecision("map_lng").notNull(),
+    mapLat: doublePrecision("map_lat"),
+    mapLng: doublePrecision("map_lng"),
     imageUrl: text("image_url"),
     isDefaultUnlocked: boolean("is_default_unlocked").notNull().default(false),
     unlockRequirement: integer("unlock_requirement").notNull().default(1),
@@ -111,7 +111,7 @@ export const markers = pgTable(
   {
     // id pakai text (bukan uuid) sesuai struktur DB di Supabase
     id: text("id").primaryKey(),
-    islandId: text("island_id")
+    islandId: uuid("island_id")
       .notNull()
       .references(() => islands.id, { onDelete: "cascade" }),
     name: text("name"),
