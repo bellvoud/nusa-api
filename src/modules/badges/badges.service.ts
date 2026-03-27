@@ -1,6 +1,13 @@
 // src/modules/badges/badges.service.ts
 import { db } from "../../db";
-import { badges, userBadges, userProgress, users } from "../../db/schema";
+import {
+  badges,
+  userBadges,
+  userProgress,
+  users,
+  markers,
+  islands,
+} from "../../db/schema";
 import { eq, and, desc } from "drizzle-orm";
 import {
   levelProgress,
@@ -9,7 +16,7 @@ import {
   calculateLevel,
 } from "../../utils/xp";
 
-// ── Semua badge yang dimiliki user ───────────────────────────
+// ── Semua badge milik user ───────────────────────────────────
 export const getUserBadges = async (userId: string) => {
   const owned = await db.query.userBadges.findMany({
     where: eq(userBadges.userId, userId),
@@ -31,7 +38,7 @@ export const getUserBadges = async (userId: string) => {
   };
 };
 
-// ── Katalog semua badge (termasuk yang belum dimiliki) ───────
+// ── Katalog semua badge + status kepemilikan ─────────────────
 export const getAllBadges = async (userId: string) => {
   const allBadges = await db.query.badges.findMany({
     where: eq(badges.isActive, true),
@@ -69,14 +76,11 @@ export const getBadgeById = async (badgeId: string, userId: string) => {
     where: and(eq(userBadges.userId, userId), eq(userBadges.badgeId, badgeId)),
   });
 
-  return {
-    ...badge,
-    isOwned: !!owned,
-    earnedAt: owned?.earnedAt ?? null,
-  };
+  return { ...badge, isOwned: !!owned, earnedAt: owned?.earnedAt ?? null };
 };
 
-// ── Progress lengkap user (semua island & level) ─────────────
+// ── Progress lengkap user ────────────────────────────────────
+// Sebelumnya pakai level→chapter→island, sekarang pakai marker→island
 export const getUserFullProgress = async (userId: string) => {
   const user = await db.query.users.findFirst({
     where: eq(users.id, userId),
@@ -90,13 +94,15 @@ export const getUserFullProgress = async (userId: string) => {
   });
   if (!user) throw new Error("USER_NOT_FOUND");
 
+  // Progress per marker
   const allProgress = await db.query.userProgress.findMany({
     where: eq(userProgress.userId, userId),
     with: {
-      level: {
+      marker: {
+        columns: { id: true, name: true, islandId: true, wilayah: true },
         with: {
-          chapter: {
-            with: { island: true },
+          island: {
+            columns: { id: true, name: true },
           },
         },
       },
@@ -104,6 +110,13 @@ export const getUserFullProgress = async (userId: string) => {
   });
 
   const completedCount = allProgress.filter((p) => p.isCompleted).length;
+  const unlockedCount = allProgress.filter((p) => p.isUnlocked).length;
+  const totalAttempts = allProgress.reduce((sum, p) => sum + p.attempts, 0);
+
+  // Hitung island yang sudah dijelajahi (ada minimal 1 marker completed)
+  const exploredIslands = new Set(
+    allProgress.filter((p) => p.isCompleted).map((p) => p.marker.islandId),
+  ).size;
 
   return {
     user: {
@@ -113,9 +126,16 @@ export const getUserFullProgress = async (userId: string) => {
       levelProgressPercent: levelProgress(user.totalXp),
     },
     stats: {
-      levelsCompleted: completedCount,
-      levelsUnlocked: allProgress.filter((p) => p.isUnlocked).length,
-      totalAttempts: allProgress.reduce((sum, p) => sum + p.attempts, 0),
+      markersCompleted: completedCount,
+      markersUnlocked: unlockedCount,
+      islandsExplored: exploredIslands,
+      totalAttempts,
+      // Untuk kompatibilitas dengan badgeConfig.js di frontend
+      totalXP: user.totalXp,
+      questSelesai: completedCount,
+      pulauDijelajahi: exploredIslands,
+      menitBermain: 0, // tidak ditrack, default 0
+      questPerfect: 0, // bisa dihitung dari quiz_sessions jika diperlukan
     },
     progress: allProgress,
   };
@@ -141,7 +161,6 @@ export const getLeaderboard = async (userId: string) => {
     isCurrentUser: user.id === userId,
   }));
 
-  // Jika user tidak masuk top 50, cari posisinya secara terpisah
   let currentUserRank = ranked.find((u) => u.isCurrentUser) ?? null;
 
   if (!currentUserRank) {
@@ -165,10 +184,7 @@ export const getLeaderboard = async (userId: string) => {
     }
   }
 
-  return {
-    leaderboard: ranked,
-    currentUserRank,
-  };
+  return { leaderboard: ranked, currentUserRank };
 };
 
 // ── Profil publik user lain ──────────────────────────────────
@@ -191,7 +207,7 @@ export const getPublicProfile = async (targetUserId: string) => {
     columns: { id: true },
   });
 
-  const completedLevels = await db.query.userProgress.findMany({
+  const completedMarkers = await db.query.userProgress.findMany({
     where: and(
       eq(userProgress.userId, targetUserId),
       eq(userProgress.isCompleted, true),
@@ -203,7 +219,7 @@ export const getPublicProfile = async (targetUserId: string) => {
     ...user,
     stats: {
       badgesEarned: badgeCount.length,
-      levelsCompleted: completedLevels.length,
+      markersCompleted: completedMarkers.length,
     },
   };
 };
