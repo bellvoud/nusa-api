@@ -1,26 +1,24 @@
 // src/modules/map/map.service.ts
 import { db } from "../../db";
-import { islands, chapters, levels, userProgress } from "../../db/schema";
+import { islands, markers, quizzes, userProgress } from "../../db/schema";
 import { eq, and, inArray } from "drizzle-orm";
 
-// ── Get all islands + status unlock per user ─────────────────
+// ── Get all islands + progress user ─────────────────────────
 export const getAllIslands = async (userId: string) => {
   const allIslands = await db.query.islands.findMany({
     orderBy: (islands, { asc }) => [asc(islands.orderIndex)],
     with: {
-      chapters: {
+      markers: {
         columns: { id: true },
       },
     },
   });
 
-  // calculate progress per island for this user
   const result = await Promise.all(
     allIslands.map(async (island) => {
-      const chapterIds = island.chapters.map((c) => c.id);
+      const markerIds = island.markers.map((m) => m.id);
 
-      // if island !chapter, return 0
-      if (!chapterIds.length) {
+      if (!markerIds.length) {
         return {
           id: island.id,
           name: island.name,
@@ -31,25 +29,19 @@ export const getAllIslands = async (userId: string) => {
           imageUrl: island.imageUrl,
           isDefaultUnlocked: island.isDefaultUnlocked,
           orderIndex: island.orderIndex,
-          chaptersCount: 0,
-          userProgress: { completedLevels: 0, totalLevels: 0 },
+          markersCount: 0,
+          userProgress: { completedMarkers: 0, totalMarkers: 0 },
         };
       }
 
-      // total levels in this island
-      const allLevels = await db.query.levels.findMany({
-        where: inArray(levels.chapterId, chapterIds),
-        columns: { id: true },
-      });
-
-      // completed levels user in this island
-      const levelIds = allLevels.map((l) => l.id);
-      const completedLevels = levelIds.length
+      // Hitung marker yang sudah completed oleh user
+      // user_progress sekarang track per marker (bukan per level)
+      const completedProgress = markerIds.length
         ? await db.query.userProgress.findMany({
             where: and(
               eq(userProgress.userId, userId),
               eq(userProgress.isCompleted, true),
-              inArray(userProgress.levelId, levelIds),
+              inArray(userProgress.markerId, markerIds),
             ),
             columns: { id: true },
           })
@@ -65,10 +57,10 @@ export const getAllIslands = async (userId: string) => {
         imageUrl: island.imageUrl,
         isDefaultUnlocked: island.isDefaultUnlocked,
         orderIndex: island.orderIndex,
-        chaptersCount: island.chapters.length,
+        markersCount: markerIds.length,
         userProgress: {
-          completedLevels: completedLevels.length,
-          totalLevels: allLevels.length,
+          completedMarkers: completedProgress.length,
+          totalMarkers: markerIds.length,
         },
       };
     }),
@@ -77,75 +69,48 @@ export const getAllIslands = async (userId: string) => {
   return result;
 };
 
-// ── Get detail island + chapters ─────────────────────────────
-export const getIslandById = async (islandId: string, userId: string) => {
-  const island = await db.query.islands.findFirst({
-    where: eq(islands.id, islandId),
-    with: {
-      chapters: {
-        orderBy: (chapters, { asc }) => [asc(chapters.orderIndex)],
-      },
-    },
-  });
-
-  if (!island) throw new Error("ISLAND_NOT_FOUND");
-  return island;
-};
-
-// ── Get chapters in an island + status level ──────────
-export const getChaptersByIsland = async (islandId: string, userId: string) => {
+// ── Get all markers in an island + unlock status ─────────────
+export const getMarkersByIsland = async (islandId: string, userId: string) => {
   const island = await db.query.islands.findFirst({
     where: eq(islands.id, islandId),
     columns: { id: true, name: true },
   });
   if (!island) throw new Error("ISLAND_NOT_FOUND");
 
-  const allChapters = await db.query.chapters.findMany({
-    where: eq(chapters.islandId, islandId),
-    orderBy: (chapters, { asc }) => [asc(chapters.orderIndex)],
-    with: {
-      levels: {
-        orderBy: (levels, { asc }) => [asc(levels.levelNumber)],
-      },
-    },
+  const allMarkers = await db.query.markers.findMany({
+    where: eq(markers.islandId, islandId),
+    orderBy: (markers, { asc }) => [asc(markers.orderIndex)],
   });
 
-  // combine with user progress
+  // Gabungkan dengan user_progress untuk status unlock tiap marker
   const result = await Promise.all(
-    allChapters.map(async (chapter) => {
-      const levelsWithProgress = await Promise.all(
-        chapter.levels.map(async (level) => {
-          const progress = await db.query.userProgress.findFirst({
-            where: and(
-              eq(userProgress.userId, userId),
-              eq(userProgress.levelId, level.id),
-            ),
-          });
-
-          return {
-            id: level.id,
-            levelNumber: level.levelNumber,
-            title: level.title,
-            eraPeriod: level.eraPeriod,
-            xpReward: level.xpReward,
-            isUnlocked: progress?.isUnlocked ?? level.levelNumber === 1,
-            isCompleted: progress?.isCompleted ?? false,
-            bestScore: progress?.bestScore ?? 0,
-            attempts: progress?.attempts ?? 0,
-          };
-        }),
-      );
+    allMarkers.map(async (marker) => {
+      const progress = await db.query.userProgress.findFirst({
+        where: and(
+          eq(userProgress.userId, userId),
+          eq(userProgress.markerId, marker.id),
+        ),
+      });
 
       return {
-        id: chapter.id,
-        name: chapter.name,
-        regionName: chapter.regionName,
-        description: chapter.description,
-        pointLat: chapter.pointLat,
-        pointLng: chapter.pointLng,
-        imageUrl: chapter.imageUrl,
-        orderIndex: chapter.orderIndex,
-        levels: levelsWithProgress,
+        id: marker.id,
+        islandId: marker.islandId,
+        name: marker.name,
+        slug: marker.slug,
+        posTop: marker.posTop,
+        posLeft: marker.posLeft,
+        xpReward: marker.xpReward,
+        xpRequired: marker.xpRequired,
+        totalSoal: marker.totalSoal,
+        wilayah: marker.wilayah,
+        imageUrl: marker.imageUrl,
+        deskripsi: marker.deskripsi,
+        thumbnail: marker.thumbnail,
+        // Unlock jika xpRequired = 0 atau user sudah punya cukup XP
+        isUnlocked: progress?.isUnlocked ?? marker.xpRequired === 0,
+        isCompleted: progress?.isCompleted ?? false,
+        bestScore: progress?.bestScore ?? 0,
+        attempts: progress?.attempts ?? 0,
       };
     }),
   );
@@ -153,28 +118,40 @@ export const getChaptersByIsland = async (islandId: string, userId: string) => {
   return result;
 };
 
-// ── Get detail one level ────────────────────────────────────
-export const getLevelById = async (levelId: string, userId: string) => {
-  const level = await db.query.levels.findFirst({
-    where: eq(levels.id, levelId),
+// ── Get detail satu marker + quizzes ────────────────────────
+export const getMarkerById = async (markerId: string, userId: string) => {
+  const marker = await db.query.markers.findFirst({
+    where: eq(markers.id, markerId),
     with: {
-      chapter: {
-        with: { island: true },
+      island: true,
+      quizzes: {
+        orderBy: (quizzes, { asc }) => [asc(quizzes.orderIndex)],
+        with: {
+          options: {
+            columns: {
+              id: true,
+              optionText: true,
+              orderIndex: true,
+              // isCorrect sengaja tidak diambil — hanya untuk submit
+            },
+            orderBy: (o, { asc }) => [asc(o.orderIndex)],
+          },
+        },
       },
     },
   });
 
-  if (!level) throw new Error("LEVEL_NOT_FOUND");
+  if (!marker) throw new Error("MARKER_NOT_FOUND");
 
   const progress = await db.query.userProgress.findFirst({
     where: and(
       eq(userProgress.userId, userId),
-      eq(userProgress.levelId, levelId),
+      eq(userProgress.markerId, markerId),
     ),
   });
 
   return {
-    ...level,
+    ...marker,
     userProgress: progress ?? null,
   };
 };

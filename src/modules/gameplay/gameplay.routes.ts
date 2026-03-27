@@ -8,77 +8,52 @@ import {
 } from "./gameplay.service";
 import { ok, created, fail } from "../../utils/response";
 
-const startSessionSchema = t.Object({
-  level_id: t.String(),
-});
-
-const submitSessionSchema = t.Object({
-  answers: t.Array(
-    t.Object({
-      quiz_id: t.String(),
-      selected_option_id: t.Optional(t.String()),
-      answer_text: t.Optional(t.String()),
-    }),
-  ),
-  time_spent_sec: t.Number({ minimum: 0 }),
-});
-
 export const gameplayRoutes = new Elysia({ prefix: "/gameplay" })
   .use(authMiddleware)
 
-  // POST /gameplay/sessions/start
+  // POST /gameplay/sessions — mulai sesi quiz baru
   .post(
-    "/sessions/start",
+    "/sessions",
     async ({ userId, body, set }) => {
       try {
-        const data = await startSession(userId, body.level_id);
+        const data = await startSession(userId, body.marker_id);
         set.status = 201;
-        return created(data, "Sesi quiz dimulai");
+        return created(data, "Sesi berhasil dimulai");
       } catch (e: any) {
-        const statusMap: Record<string, number> = {
-          LEVEL_NOT_FOUND: 404,
-          LEVEL_LOCKED: 403,
-          SESSION_ACTIVE: 409,
-          NO_QUESTIONS: 404,
-        };
-        const msgMap: Record<string, string> = {
-          LEVEL_NOT_FOUND: "Level tidak ditemukan",
-          LEVEL_LOCKED: "Level belum terbuka, selesaikan level sebelumnya",
-          SESSION_ACTIVE: "Kamu masih punya sesi aktif di level ini",
-          NO_QUESTIONS: "Level ini belum memiliki soal",
-        };
-        set.status = statusMap[e.message] ?? 500;
-        return fail(msgMap[e.message] ?? "Gagal memulai sesi");
+        const msg = e.message;
+        if (msg === "MARKER_NOT_FOUND") {
+          set.status = 404;
+          return fail("Marker tidak ditemukan");
+        }
+        if (msg === "MARKER_LOCKED") {
+          set.status = 403;
+          return fail("XP kamu belum cukup untuk membuka quest ini");
+        }
+        if (msg === "SESSION_ACTIVE") {
+          set.status = 409;
+          return fail("Kamu masih memiliki sesi aktif untuk marker ini");
+        }
+        if (msg === "NO_QUESTIONS") {
+          set.status = 422;
+          return fail("Quest ini belum memiliki soal");
+        }
+        console.error("[gameplay/sessions POST]", msg, e?.stack);
+        set.status = 500;
+        return fail("Gagal memulai sesi");
       }
     },
     {
-      body: startSessionSchema,
-      detail: { tags: ["Gameplay"], summary: "Mulai sesi quiz baru" },
-    },
-  )
-
-  // GET /gameplay/sessions/:id
-  .get(
-    "/sessions/:id",
-    async ({ userId, params, set }) => {
-      try {
-        const data = await getSessionResult(userId, params.id);
-        return ok(data);
-      } catch {
-        set.status = 404;
-        return fail("Sesi tidak ditemukan");
-      }
-    },
-    {
-      params: t.Object({ id: t.String() }),
+      body: t.Object({
+        marker_id: t.String({ minLength: 1 }),
+      }),
       detail: {
         tags: ["Gameplay"],
-        summary: "Ambil detail sesi (aktif maupun selesai)",
+        summary: "Mulai sesi quiz baru untuk sebuah marker",
       },
     },
   )
 
-  // POST /gameplay/sessions/:id/submit
+  // POST /gameplay/sessions/:id/submit — submit semua jawaban
   .post(
     "/sessions/:id/submit",
     async ({ userId, params, body, set }) => {
@@ -89,69 +64,58 @@ export const gameplayRoutes = new Elysia({ prefix: "/gameplay" })
           body.answers,
           body.time_spent_sec,
         );
-        return ok(
-          data,
-          data.isPassed ? "Selamat, kamu lulus!" : "Coba lagi ya!",
-        );
+        return ok(data, "Jawaban berhasil disubmit");
       } catch (e: any) {
-        const statusMap: Record<string, number> = {
-          SESSION_NOT_FOUND: 404,
-          LEVEL_NOT_FOUND: 404,
-          USER_NOT_FOUND: 404,
-        };
-        set.status = statusMap[e.message] ?? 500;
-        return fail(
-          e.message === "SESSION_NOT_FOUND"
-            ? "Sesi tidak ditemukan atau sudah selesai"
-            : "Gagal submit jawaban",
-        );
+        const msg = e.message;
+        if (msg === "SESSION_NOT_FOUND") {
+          set.status = 404;
+          return fail("Sesi tidak ditemukan atau sudah selesai");
+        }
+        if (msg === "MARKER_NOT_FOUND") {
+          set.status = 404;
+          return fail("Marker tidak ditemukan");
+        }
+        console.error("[gameplay/sessions/:id/submit]", msg, e?.stack);
+        set.status = 500;
+        return fail("Gagal mengirim jawaban");
       }
     },
     {
       params: t.Object({ id: t.String() }),
-      body: submitSessionSchema,
-      detail: { tags: ["Gameplay"], summary: "Submit semua jawaban quiz" },
+      body: t.Object({
+        answers: t.Array(
+          t.Object({
+            quiz_id: t.String(),
+            selected_option_id: t.Optional(t.String()),
+            answer_text: t.Optional(t.String()),
+          }),
+        ),
+        time_spent_sec: t.Number(),
+      }),
+      detail: {
+        tags: ["Gameplay"],
+        summary: "Submit semua jawaban dan dapatkan hasil serta XP",
+      },
     },
   )
 
-  // POST /gameplay/sessions/:id/abandon
-  .post(
-    "/sessions/:id/abandon",
+  // GET /gameplay/sessions/:id/result — lihat hasil sesi
+  .get(
+    "/sessions/:id/result",
     async ({ userId, params, set }) => {
       try {
-        // Mark sesi sebagai selesai tanpa skor
-        const { db } = await import("../../db");
-        const { quizSessions } = await import("../../db/schema");
-        const { eq, and } = await import("drizzle-orm");
-
-        const [session] = await db
-          .update(quizSessions)
-          .set({ isCompleted: true, endedAt: new Date() })
-          .where(
-            and(
-              eq(quizSessions.id, params.id),
-              eq(quizSessions.userId, userId),
-              eq(quizSessions.isCompleted, false),
-            ),
-          )
-          .returning({ id: quizSessions.id });
-
-        if (!session) {
-          set.status = 404;
-          return fail("Sesi tidak ditemukan atau sudah selesai");
-        }
-
-        return ok({ sessionId: session.id }, "Sesi dibatalkan");
-      } catch {
-        set.status = 500;
-        return fail("Gagal membatalkan sesi");
+        const data = await getSessionResult(userId, params.id);
+        return ok(data);
+      } catch (e: any) {
+        set.status = 404;
+        return fail("Hasil sesi tidak ditemukan");
       }
     },
     {
       params: t.Object({ id: t.String() }),
       detail: {
         tags: ["Gameplay"],
-        summary: "Batalkan sesi quiz yang sedang aktif",
+        summary: "Ambil hasil sesi quiz yang sudah selesai",
       },
     },
   );

@@ -6,6 +6,7 @@ import {
   text,
   boolean,
   integer,
+  bigint,
   doublePrecision,
   timestamp,
   date,
@@ -44,10 +45,10 @@ export const badgeCriteriaTypeEnum = pgEnum("badge_criteria_type", [
 ]);
 
 export const weeklyTaskTypeEnum = pgEnum("weekly_task_type", [
-  "complete_levels", // Selesaikan X level dalam seminggu
-  "perfect_score", // Raih skor sempurna X kali
-  "login_streak", // Login X hari berturut-turut
-  "collect_xp", // Kumpulkan X XP dalam seminggu
+  "complete_levels",
+  "perfect_score",
+  "login_streak",
+  "collect_xp",
 ]);
 
 // ============================================================
@@ -101,80 +102,57 @@ export const islands = pgTable(
 );
 
 // ============================================================
-// CHAPTERS
+// MARKERS — pengganti chapters + levels
+// Setiap marker = satu lokasi di peta dengan quiz tersendiri
 // ============================================================
 
-export const chapters = pgTable(
-  "chapters",
+export const markers = pgTable(
+  "markers",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
-    islandId: uuid("island_id")
+    // id pakai text (bukan uuid) sesuai struktur DB di Supabase
+    id: text("id").primaryKey(),
+    islandId: text("island_id")
       .notNull()
       .references(() => islands.id, { onDelete: "cascade" }),
-    name: varchar("name", { length: 100 }).notNull(),
-    regionName: varchar("region_name", { length: 150 }).notNull(),
-    description: text("description"),
-    pointLat: doublePrecision("point_lat").notNull(),
-    pointLng: doublePrecision("point_lng").notNull(),
+    name: text("name"),
+    slug: text("slug"),
+    // Posisi marker di peta (dalam %, misal "45%", "30%")
+    posTop: text("pos_top"),
+    posLeft: text("pos_left"),
+    xpReward: bigint("xp_reward", { mode: "number" }),
+    xpRequired: bigint("xp_required", { mode: "number" }),
+    totalSoal: bigint("total_soal", { mode: "number" }),
+    wilayah: text("wilayah"),
+    // Field tambahan untuk QuestCard di frontend
     imageUrl: text("image_url"),
-    orderIndex: integer("order_index").notNull().default(0),
-    totalLevels: integer("total_levels").notNull().default(5),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
+    thumbnail: text("thumbnail"),
+    deskripsi: text("deskripsi"),
+    orderIndex: integer("order_index").default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (t) => ({
-    islandIdx: index("chapters_island_idx").on(t.islandId),
-    orderIdx: index("chapters_order_idx").on(t.islandId, t.orderIndex),
+    islandIdx: index("markers_island_idx").on(t.islandId),
   }),
 );
 
 // ============================================================
-// LEVELS
-// ============================================================
-
-export const levels = pgTable(
-  "levels",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    chapterId: uuid("chapter_id")
-      .notNull()
-      .references(() => chapters.id, { onDelete: "cascade" }),
-    levelNumber: integer("level_number").notNull(),
-    title: varchar("title", { length: 150 }).notNull(),
-    description: text("description"),
-    eraPeriod: varchar("era_period", { length: 100 }),
-    xpReward: integer("xp_reward").notNull().default(100),
-    minScoreToPass: integer("min_score_to_pass").notNull().default(60),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
-  },
-  (t) => ({
-    chapterIdx: index("levels_chapter_idx").on(t.chapterId),
-    uniqueLevel: uniqueIndex("levels_chapter_number_unique").on(
-      t.chapterId,
-      t.levelNumber,
-    ),
-  }),
-);
-
-// ============================================================
-// QUIZZES
+// QUIZZES — sekarang punya marker_id (bukan level_id)
 // ============================================================
 
 export const quizzes = pgTable(
   "quizzes",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
-    levelId: uuid("level_id")
+    id: text("id").primaryKey(),
+    markerId: text("marker_id")
       .notNull()
-      .references(() => levels.id, { onDelete: "cascade" }),
-    question: text("question").notNull(),
-    type: quizTypeEnum("type").notNull().default("multiple_choice"),
-    imageUrl: text("image_url"),
+      .references(() => markers.id, { onDelete: "cascade" }),
+    question: text("question"),
     explanation: text("explanation"),
-    orderIndex: integer("order_index").notNull().default(0),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
+    orderIndex: bigint("order_index", { mode: "number" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (t) => ({
-    levelIdx: index("quizzes_level_idx").on(t.levelId),
+    markerIdx: index("quizzes_marker_idx").on(t.markerId),
   }),
 );
 
@@ -185,13 +163,13 @@ export const quizzes = pgTable(
 export const quizOptions = pgTable(
   "quiz_options",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
-    quizId: uuid("quiz_id")
+    id: text("id").primaryKey(),
+    quizId: text("quiz_id")
       .notNull()
       .references(() => quizzes.id, { onDelete: "cascade" }),
-    optionText: text("option_text").notNull(),
-    isCorrect: boolean("is_correct").notNull().default(false),
-    orderIndex: integer("order_index").notNull().default(0),
+    optionText: text("option_text"),
+    isCorrect: boolean("is_correct"),
+    orderIndex: bigint("order_index", { mode: "number" }),
   },
   (t) => ({
     quizIdx: index("quiz_options_quiz_idx").on(t.quizId),
@@ -199,7 +177,7 @@ export const quizOptions = pgTable(
 );
 
 // ============================================================
-// USER PROGRESS
+// USER PROGRESS — track per marker (bukan per level)
 // ============================================================
 
 export const userProgress = pgTable(
@@ -209,9 +187,10 @@ export const userProgress = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    levelId: uuid("level_id")
+    // markerId menggantikan levelId
+    markerId: text("marker_id")
       .notNull()
-      .references(() => levels.id, { onDelete: "cascade" }),
+      .references(() => markers.id, { onDelete: "cascade" }),
     bestScore: integer("best_score").notNull().default(0),
     attempts: integer("attempts").notNull().default(0),
     isCompleted: boolean("is_completed").notNull().default(false),
@@ -221,9 +200,12 @@ export const userProgress = pgTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (t) => ({
-    uniqueProgress: uniqueIndex("user_progress_unique").on(t.userId, t.levelId),
+    uniqueProgress: uniqueIndex("user_progress_unique").on(
+      t.userId,
+      t.markerId,
+    ),
     userIdx: index("user_progress_user_idx").on(t.userId),
-    levelIdx: index("user_progress_level_idx").on(t.levelId),
+    markerIdx: index("user_progress_marker_idx").on(t.markerId),
   }),
 );
 
@@ -238,9 +220,10 @@ export const quizSessions = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    levelId: uuid("level_id")
+    // markerId menggantikan levelId di sessions
+    markerId: text("marker_id")
       .notNull()
-      .references(() => levels.id, { onDelete: "cascade" }),
+      .references(() => markers.id, { onDelete: "cascade" }),
     score: integer("score"),
     totalQuestions: integer("total_questions").notNull(),
     correctAnswers: integer("correct_answers"),
@@ -253,7 +236,7 @@ export const quizSessions = pgTable(
   },
   (t) => ({
     userIdx: index("quiz_sessions_user_idx").on(t.userId),
-    levelIdx: index("quiz_sessions_level_idx").on(t.levelId),
+    markerIdx: index("quiz_sessions_marker_idx").on(t.markerId),
   }),
 );
 
@@ -268,10 +251,10 @@ export const sessionAnswers = pgTable(
     sessionId: uuid("session_id")
       .notNull()
       .references(() => quizSessions.id, { onDelete: "cascade" }),
-    quizId: uuid("quiz_id")
+    quizId: text("quiz_id")
       .notNull()
       .references(() => quizzes.id, { onDelete: "cascade" }),
-    selectedOptionId: uuid("selected_option_id").references(
+    selectedOptionId: text("selected_option_id").references(
       () => quizOptions.id,
     ),
     answerText: text("answer_text"),
@@ -334,9 +317,7 @@ export const userBadges = pgTable(
 );
 
 // ============================================================
-// DAILY QUIZZES — bank soal harian (30 soal, 1 per hari)
-// Soal dipilih deterministik berdasarkan: dayOfYear % totalSoal
-// Sehingga semua user mendapat soal yang sama setiap harinya
+// DAILY QUIZZES
 // ============================================================
 
 export const dailyQuizzes = pgTable(
@@ -346,9 +327,7 @@ export const dailyQuizzes = pgTable(
     question: text("question").notNull(),
     type: quizTypeEnum("type").notNull().default("multiple_choice"),
     explanation: text("explanation").notNull(),
-    // Topik sejarah: "Majapahit", "VOC", "Proklamasi", "Sriwijaya", dll
     topic: varchar("topic", { length: 100 }).notNull(),
-    // easy | medium | hard
     difficulty: varchar("difficulty", { length: 20 })
       .notNull()
       .default("medium"),
@@ -383,7 +362,7 @@ export const dailyQuizOptions = pgTable(
 );
 
 // ============================================================
-// USER DAILY PROGRESS — rekaman jawaban harian per user
+// USER DAILY PROGRESS
 // ============================================================
 
 export const userDailyProgress = pgTable(
@@ -396,7 +375,6 @@ export const userDailyProgress = pgTable(
     dailyQuizId: uuid("daily_quiz_id")
       .notNull()
       .references(() => dailyQuizzes.id, { onDelete: "cascade" }),
-    // Format YYYY-MM-DD — satu baris per user per hari
     quizDate: date("quiz_date").notNull(),
     selectedOptionId: uuid("selected_option_id").references(
       () => dailyQuizOptions.id,
@@ -407,7 +385,6 @@ export const userDailyProgress = pgTable(
     answeredAt: timestamp("answered_at").notNull().defaultNow(),
   },
   (t) => ({
-    // Satu user hanya bisa menjawab satu kali per hari
     uniqueDaily: uniqueIndex("user_daily_progress_unique").on(
       t.userId,
       t.quizDate,
@@ -418,8 +395,7 @@ export const userDailyProgress = pgTable(
 );
 
 // ============================================================
-// WEEKLY TASKS — definisi task mingguan (template tetap)
-// Reset otomatis setiap Senin 00:00
+// WEEKLY TASKS
 // ============================================================
 
 export const weeklyTasks = pgTable(
@@ -429,7 +405,6 @@ export const weeklyTasks = pgTable(
     title: varchar("title", { length: 150 }).notNull(),
     description: text("description").notNull(),
     type: weeklyTaskTypeEnum("type").notNull(),
-    // Nilai target yang harus dicapai
     targetValue: integer("target_value").notNull(),
     xpReward: integer("xp_reward").notNull().default(50),
     isActive: boolean("is_active").notNull().default(true),
@@ -442,7 +417,7 @@ export const weeklyTasks = pgTable(
 );
 
 // ============================================================
-// USER WEEKLY TASKS — progress user per task per minggu
+// USER WEEKLY TASKS
 // ============================================================
 
 export const userWeeklyTasks = pgTable(
@@ -455,18 +430,15 @@ export const userWeeklyTasks = pgTable(
     weeklyTaskId: uuid("weekly_task_id")
       .notNull()
       .references(() => weeklyTasks.id, { onDelete: "cascade" }),
-    // Tanggal Senin awal minggu sebagai key periode (YYYY-MM-DD)
     weekStartDate: date("week_start_date").notNull(),
     currentValue: integer("current_value").notNull().default(0),
     isCompleted: boolean("is_completed").notNull().default(false),
-    // Apakah XP reward sudah diklaim (klaim manual oleh user)
     xpClaimed: boolean("xp_claimed").notNull().default(false),
     completedAt: timestamp("completed_at"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (t) => ({
-    // Satu baris per user per task per minggu
     uniqueWeekly: uniqueIndex("user_weekly_tasks_unique").on(
       t.userId,
       t.weeklyTaskId,
@@ -478,7 +450,7 @@ export const userWeeklyTasks = pgTable(
 );
 
 // ============================================================
-// RELATIONS — existing
+// RELATIONS
 // ============================================================
 
 export const usersRelations = relations(users, ({ many }) => ({
@@ -490,21 +462,13 @@ export const usersRelations = relations(users, ({ many }) => ({
 }));
 
 export const islandsRelations = relations(islands, ({ many }) => ({
-  chapters: many(chapters),
+  markers: many(markers),
 }));
 
-export const chaptersRelations = relations(chapters, ({ one, many }) => ({
+export const markersRelations = relations(markers, ({ one, many }) => ({
   island: one(islands, {
-    fields: [chapters.islandId],
+    fields: [markers.islandId],
     references: [islands.id],
-  }),
-  levels: many(levels),
-}));
-
-export const levelsRelations = relations(levels, ({ one, many }) => ({
-  chapter: one(chapters, {
-    fields: [levels.chapterId],
-    references: [chapters.id],
   }),
   quizzes: many(quizzes),
   userProgress: many(userProgress),
@@ -512,7 +476,10 @@ export const levelsRelations = relations(levels, ({ one, many }) => ({
 }));
 
 export const quizzesRelations = relations(quizzes, ({ one, many }) => ({
-  level: one(levels, { fields: [quizzes.levelId], references: [levels.id] }),
+  marker: one(markers, {
+    fields: [quizzes.markerId],
+    references: [markers.id],
+  }),
   options: many(quizOptions),
   sessionAnswers: many(sessionAnswers),
 }));
@@ -526,9 +493,9 @@ export const quizOptionsRelations = relations(quizOptions, ({ one }) => ({
 
 export const userProgressRelations = relations(userProgress, ({ one }) => ({
   user: one(users, { fields: [userProgress.userId], references: [users.id] }),
-  level: one(levels, {
-    fields: [userProgress.levelId],
-    references: [levels.id],
+  marker: one(markers, {
+    fields: [userProgress.markerId],
+    references: [markers.id],
   }),
 }));
 
@@ -536,9 +503,9 @@ export const quizSessionsRelations = relations(
   quizSessions,
   ({ one, many }) => ({
     user: one(users, { fields: [quizSessions.userId], references: [users.id] }),
-    level: one(levels, {
-      fields: [quizSessions.levelId],
-      references: [levels.id],
+    marker: one(markers, {
+      fields: [quizSessions.markerId],
+      references: [markers.id],
     }),
     answers: many(sessionAnswers),
   }),
@@ -567,10 +534,6 @@ export const userBadgesRelations = relations(userBadges, ({ one }) => ({
   user: one(users, { fields: [userBadges.userId], references: [users.id] }),
   badge: one(badges, { fields: [userBadges.badgeId], references: [badges.id] }),
 }));
-
-// ============================================================
-// RELATIONS — daily & weekly (baru)
-// ============================================================
 
 export const dailyQuizzesRelations = relations(dailyQuizzes, ({ many }) => ({
   options: many(dailyQuizOptions),
@@ -631,10 +594,8 @@ export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Island = typeof islands.$inferSelect;
 export type NewIsland = typeof islands.$inferInsert;
-export type Chapter = typeof chapters.$inferSelect;
-export type NewChapter = typeof chapters.$inferInsert;
-export type Level = typeof levels.$inferSelect;
-export type NewLevel = typeof levels.$inferInsert;
+export type Marker = typeof markers.$inferSelect;
+export type NewMarker = typeof markers.$inferInsert;
 export type Quiz = typeof quizzes.$inferSelect;
 export type NewQuiz = typeof quizzes.$inferInsert;
 export type QuizOption = typeof quizOptions.$inferSelect;

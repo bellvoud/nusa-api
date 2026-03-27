@@ -5,48 +5,47 @@ import {
   sessionAnswers,
   quizzes,
   quizOptions,
-  levels,
+  markers,
   userProgress,
   users,
 } from "../../db/schema";
-import { eq, and, gte } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { calculateLevel } from "../../utils/xp";
 import { evaluateAndAwardBadges } from "../../utils/badgeEngine";
 import { updateWeeklyTaskProgress } from "../daily/daily.service";
 
-// ── Start new session ───────────────────────────────────────
-export const startSession = async (userId: string, levelId: string) => {
-  const level = await db.query.levels.findFirst({
-    where: eq(levels.id, levelId),
+// ── Start new session ────────────────────────────────────────
+export const startSession = async (userId: string, markerId: string) => {
+  const marker = await db.query.markers.findFirst({
+    where: eq(markers.id, markerId),
   });
-  if (!level) throw new Error("LEVEL_NOT_FOUND");
+  if (!marker) throw new Error("MARKER_NOT_FOUND");
 
-  // check level is unlocked?
-  const progress = await db.query.userProgress.findFirst({
-    where: and(
-      eq(userProgress.userId, userId),
-      eq(userProgress.levelId, levelId),
-    ),
+  // Cek apakah user punya cukup XP untuk unlock marker ini
+  const user = await db.query.users.findFirst({
+    where: eq(users.id, userId),
+    columns: { totalXp: true },
   });
+  if (!user) throw new Error("USER_NOT_FOUND");
 
-  const isFirstLevel = level.levelNumber === 1;
-  if (!isFirstLevel && !progress?.isUnlocked) {
-    throw new Error("LEVEL_LOCKED");
+  const xpRequired = marker.xpRequired ?? 0;
+  if (xpRequired > 0 && user.totalXp < xpRequired) {
+    throw new Error("MARKER_LOCKED");
   }
 
-  // check no active session
+  // Cek tidak ada sesi aktif
   const activeSession = await db.query.quizSessions.findFirst({
     where: and(
       eq(quizSessions.userId, userId),
-      eq(quizSessions.levelId, levelId),
+      eq(quizSessions.markerId, markerId),
       eq(quizSessions.isCompleted, false),
     ),
   });
   if (activeSession) throw new Error("SESSION_ACTIVE");
 
-  // get all quizzes (without correct answers)
+  // Ambil semua soal untuk marker ini (tanpa jawaban benar)
   const allQuizzes = await db.query.quizzes.findMany({
-    where: eq(quizzes.levelId, levelId),
+    where: eq(quizzes.markerId, markerId),
     orderBy: (q, { asc }) => [asc(q.orderIndex)],
     with: {
       options: {
@@ -54,7 +53,7 @@ export const startSession = async (userId: string, levelId: string) => {
           id: true,
           optionText: true,
           orderIndex: true,
-          // isCorrect intentionally not taken
+          // isCorrect sengaja tidak diambil
         },
         orderBy: (o, { asc }) => [asc(o.orderIndex)],
       },
@@ -63,30 +62,28 @@ export const startSession = async (userId: string, levelId: string) => {
 
   if (!allQuizzes.length) throw new Error("NO_QUESTIONS");
 
-  // create new session
+  // Buat sesi baru
   const [session] = await db
     .insert(quizSessions)
     .values({
       userId,
-      levelId,
+      markerId,
       totalQuestions: allQuizzes.length,
     })
     .returning();
 
   return {
     sessionId: session.id,
-    level: {
-      id: level.id,
-      title: level.title,
-      eraPeriod: level.eraPeriod,
-      xpReward: level.xpReward,
+    marker: {
+      id: marker.id,
+      name: marker.name,
+      wilayah: marker.wilayah,
+      xpReward: marker.xpReward,
     },
     questions: allQuizzes.map((q) => ({
       id: q.id,
       orderIndex: q.orderIndex,
-      type: q.type,
       question: q.question,
-      imageUrl: q.imageUrl,
       options: q.options,
     })),
     totalQuestions: allQuizzes.length,
@@ -94,7 +91,7 @@ export const startSession = async (userId: string, levelId: string) => {
   };
 };
 
-// ── Submit all answers ─────────────────────────────────────
+// ── Submit all answers ───────────────────────────────────────
 export const submitSession = async (
   userId: string,
   sessionId: string,
@@ -105,7 +102,7 @@ export const submitSession = async (
   }>,
   timeSpentSec: number,
 ) => {
-  // check session valid milik user ini
+  // Validasi sesi milik user ini
   const session = await db.query.quizSessions.findFirst({
     where: and(
       eq(quizSessions.id, sessionId),
@@ -115,13 +112,13 @@ export const submitSession = async (
   });
   if (!session) throw new Error("SESSION_NOT_FOUND");
 
-  // get all quizzes + correct answers
+  // Ambil semua soal + jawaban benar
   const allQuizzes = await db.query.quizzes.findMany({
-    where: eq(quizzes.levelId, session.levelId),
+    where: eq(quizzes.markerId, session.markerId),
     with: { options: true },
   });
 
-  // evaluate each answer
+  // Evaluasi tiap jawaban
   let correctCount = 0;
   const breakdown: Array<{
     quizId: string;
@@ -135,31 +132,18 @@ export const submitSession = async (
     const quiz = allQuizzes.find((q) => q.id === answer.quiz_id);
     if (!quiz) return null;
 
-    let isCorrect = false;
-    let correctOptionId: string | null = null;
+    const correctOption = quiz.options.find((o) => o.isCorrect);
+    const selectedOption = quiz.options.find(
+      (o) => o.id === answer.selected_option_id,
+    );
 
-    if (quiz.type === "fill_blank") {
-      // compare text (case-insensitive)
-      const correctOption = quiz.options.find((o) => o.isCorrect);
-      correctOptionId = correctOption?.id ?? null;
-      isCorrect =
-        answer.answer_text?.trim().toLowerCase() ===
-        correctOption?.optionText.trim().toLowerCase();
-    } else {
-      const selectedOption = quiz.options.find(
-        (o) => o.id === answer.selected_option_id,
-      );
-      const correctOption = quiz.options.find((o) => o.isCorrect);
-      correctOptionId = correctOption?.id ?? null;
-      isCorrect = selectedOption?.isCorrect ?? false;
-    }
-
+    const isCorrect = selectedOption?.isCorrect ?? false;
     if (isCorrect) correctCount++;
 
     breakdown.push({
       quizId: quiz.id,
       isCorrect,
-      correctOptionId,
+      correctOptionId: correctOption?.id ?? null,
       selectedOptionId: answer.selected_option_id ?? null,
       explanation: quiz.explanation,
     });
@@ -173,7 +157,7 @@ export const submitSession = async (
     };
   });
 
-  // save answers to DB
+  // Simpan jawaban
   const validAnswers = answerRows.filter(Boolean) as any[];
   if (validAnswers.length) {
     await db.insert(sessionAnswers).values(validAnswers);
@@ -181,16 +165,19 @@ export const submitSession = async (
 
   const score = Math.round((correctCount / session.totalQuestions) * 100);
 
-  // get level to check passing score & XP
-  const level = await db.query.levels.findFirst({
-    where: eq(levels.id, session.levelId),
+  // Ambil marker untuk xpReward & passing score
+  const marker = await db.query.markers.findFirst({
+    where: eq(markers.id, session.markerId),
   });
-  if (!level) throw new Error("LEVEL_NOT_FOUND");
+  if (!marker) throw new Error("MARKER_NOT_FOUND");
 
-  const isPassed = score >= level.minScoreToPass;
-  const xpGained = isPassed ? level.xpReward : Math.round(level.xpReward * 0.2);
+  // Lulus jika score >= 60
+  const minScoreToPass = 60;
+  const isPassed = score >= minScoreToPass;
+  const xpReward = marker.xpReward ?? 0;
+  const xpGained = isPassed ? xpReward : Math.round(xpReward * 0.2);
 
-  // update session as completed
+  // Update sesi sebagai selesai
   await db
     .update(quizSessions)
     .set({
@@ -204,7 +191,7 @@ export const submitSession = async (
     })
     .where(eq(quizSessions.id, sessionId));
 
-  // update user XP & level
+  // Update XP & level user
   const user = await db.query.users.findFirst({
     where: eq(users.id, userId),
     columns: { totalXp: true, level: true },
@@ -219,11 +206,11 @@ export const submitSession = async (
     .set({ totalXp: newTotalXp, level: newLevel, updatedAt: new Date() })
     .where(eq(users.id, userId));
 
-  // update or insert user_progress
+  // Update atau insert user_progress untuk marker ini
   const existingProgress = await db.query.userProgress.findFirst({
     where: and(
       eq(userProgress.userId, userId),
-      eq(userProgress.levelId, session.levelId),
+      eq(userProgress.markerId, session.markerId),
     ),
   });
 
@@ -244,7 +231,7 @@ export const submitSession = async (
   } else {
     await db.insert(userProgress).values({
       userId,
-      levelId: session.levelId,
+      markerId: session.markerId,
       bestScore: score,
       attempts: 1,
       isCompleted: isPassed,
@@ -253,44 +240,14 @@ export const submitSession = async (
     });
   }
 
-  // unlock next level if passed
-  let nextLevelUnlocked = false;
-  if (isPassed) {
-    const nextLevel = await db.query.levels.findFirst({
-      where: and(
-        eq(levels.chapterId, level.chapterId),
-        eq(levels.levelNumber, level.levelNumber + 1),
-      ),
-    });
-
-    if (nextLevel) {
-      const nextProgress = await db.query.userProgress.findFirst({
-        where: and(
-          eq(userProgress.userId, userId),
-          eq(userProgress.levelId, nextLevel.id),
-        ),
-      });
-
-      if (!nextProgress) {
-        await db.insert(userProgress).values({
-          userId,
-          levelId: nextLevel.id,
-          isUnlocked: true,
-          isCompleted: false,
-        });
-        nextLevelUnlocked = true;
-      }
-    }
-  }
-
-  // update weekly task progress
+  // Update weekly task progress
   await updateWeeklyTaskProgress(userId, "complete_levels", isPassed ? 1 : 0);
   await updateWeeklyTaskProgress(userId, "collect_xp", xpGained);
   if (isPassed && score >= 100) {
     await updateWeeklyTaskProgress(userId, "perfect_score", 1);
   }
 
-  // check newly unlocked badge
+  // Cek badge baru
   const newBadges = await evaluateAndAwardBadges(userId);
 
   return {
@@ -298,14 +255,14 @@ export const submitSession = async (
     correctAnswers: correctCount,
     totalQuestions: session.totalQuestions,
     xpGained,
+    newTotalXp,
     isPassed,
-    nextLevelUnlocked,
     newBadges,
     answerBreakdown: breakdown,
   };
 };
 
-// ── Get session result ──────────────────────────────────────────
+// ── Get session result ───────────────────────────────────────
 export const getSessionResult = async (userId: string, sessionId: string) => {
   const session = await db.query.quizSessions.findFirst({
     where: and(eq(quizSessions.id, sessionId), eq(quizSessions.userId, userId)),
@@ -316,7 +273,7 @@ export const getSessionResult = async (userId: string, sessionId: string) => {
           selectedOption: true,
         },
       },
-      level: true,
+      marker: true,
     },
   });
 
