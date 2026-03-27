@@ -18,5 +18,5 @@ export const refreshSchema = t.Object({
 
 export const updateProfileSchema = t.Object({
   username: t.Optional(t.String({ minLength: 3, maxLength: 50 })),
-  avatar_url: t.Optional(t.String({ format: "uri" })),
+  avatar_url: t.Optional(t.String()),
 });
